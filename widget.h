@@ -5,6 +5,10 @@
 #include <QTcpServer>
 #include <QTcpSocket>
 #include <QHash>
+#include <QDate>
+#include <QTime>
+#include <QFile>
+#include <QDir>
 
 namespace Ui {
 class Widget;
@@ -21,12 +25,21 @@ public:
 private:
     Ui::Widget *ui;
     char *buf;
+    QFile *file;
+    QTime time;
+    QDate date;
+    QString log_normal, log_pot;
     QTcpServer *serverSocket;
     QList<QTcpSocket*> clientSocket;
     QMap<QTcpSocket*, QTcpSocket*> SQLsocket;
     QMap<char, QString> command;
     QHash<QString, int> failcount;
+    QHash<QString, QTime> blacklist;
+
     int initialcommand();
+    int log(QString string);
+    int logline(QString line);
+
 private slots:
     void on_pb_start_clicked();
     void on_pb_stop_clicked();

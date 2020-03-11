@@ -1,6 +1,5 @@
 #include "widget.h"
 #include "ui_widget.h"
-#include <QTime>
 
 Widget::Widget(QWidget *parent) :
     QWidget(parent),
@@ -8,6 +7,11 @@ Widget::Widget(QWidget *parent) :
 {
     ui->setupUi(this);
     initialcommand();
+    QDir dir("log");
+    if(!dir.exists(QCoreApplication::applicationDirPath()+"/logs"))
+    {
+        dir.mkdir(QCoreApplication::applicationDirPath()+"/logs");
+    }
     buf = new char[16777215];
     serverSocket = new QTcpServer();
     connect(serverSocket, SIGNAL(newConnection()), this, SLOT(acceptConnection()));
@@ -27,10 +31,10 @@ void Widget::on_pb_start_clicked()
     {
         if (serverSocket->listen(QHostAddress(ui->le__ListingAddr->text().split(":")[0]), ui->le__ListingAddr->text().split(":")[1].toUShort()))
         {
-            ui->loging->appendPlainText("监听成功");
+            logline("监听成功");
             ui->cb_state->setChecked(true);
         } else {
-            ui->loging->appendPlainText("端口监听失败");
+            logline("端口监听失败");
             ui->cb_state->setChecked(false);
         }
     }
@@ -48,7 +52,7 @@ void Widget::on_pb_stop_clicked()
         }
         failcount.clear();
         ui->cb_state->setChecked(false);
-        ui->loging->appendPlainText("监听终止");
+        logline("监听终止");
     }
 }
 
@@ -68,7 +72,7 @@ void Widget::acceptConnection()
     connect(Currentsocket, SIGNAL(readyRead()), this, SLOT(readClient()));
     connect(Currentsocket, SIGNAL(disconnected()), this, SLOT(clientdisconnected()));
     connect(SQLsocket[Currentsocket], SIGNAL(readyRead()), this, SLOT(readSQLserver()));
-    ui->loging->appendPlainText("A new connection:" + QString::number(int(Currentsocket) & 0x0000FFFF,16));
+    //logline("A new connection:" + QString::number(int(Currentsocket) & 0x0000FFFF,16));
 }
 
 void Widget::readClient()
@@ -76,16 +80,12 @@ void Widget::readClient()
     char certsucces2[11] = {7,0,0,1,0,0,0,2,0,0,0};
     for(int i=0; i<clientSocket.length(); i++)
         {
-        QTime time;
             qint64 size = clientSocket[i]->read(buf,16777215);
             if(size == 0)   continue;
-            if(ui->cb_log->isChecked())
+            if(buf[4] >= 0x00 && buf[4] <= 0x1C)
             {
-                if(buf[4] >= 0x00 && buf[4] <= 0x1C)
-                {
-                    ui->loging->appendPlainText(time.currentTime().toString() + " [" + clientSocket[i]->peerAddress().toString()\
-                                                + "] [" +command[buf[4]] + "] " + &buf[5]);
-                }
+                logline("[" + clientSocket[i]->peerAddress().toString()\
+                      + "] [" +command[buf[4]] + "] " + &buf[5]);
             }
             if(failcount[clientSocket[i]->peerAddress().toString()]<ui->sb_attempt->value() && ui->cb_resent->isChecked())
             {
@@ -110,12 +110,23 @@ void Widget::readSQLserver()
         if((buf[3] == 2 && buf[4] == -1))
         {
             failcount[ipaddr] +=1;
-            ui->loging->appendPlainText(ipaddr+"登录失败x"+QString::number(failcount[ipaddr]));
+            logline(ipaddr+"登录失败x"+QString::number(failcount[ipaddr]));
             if(failcount[ipaddr]>=5)
             {
-                clientSocket[i]->write(certsucces,11);
-                for(unsigned int i=0; i<size; i++) buf[i]=0;
-                continue;
+                if(blacklist.contains(ipaddr))
+                {
+                    qDebug()<<blacklist[ipaddr].secsTo(time.currentTime());
+                    if(blacklist[ipaddr].secsTo(time.currentTime()) >= ui->sb_ttl->value())
+                    {
+                        failcount[ipaddr] = 0;
+                        blacklist.remove(ipaddr);
+                    }
+                    clientSocket[i]->write(certsucces,11);
+                    for(unsigned int i=0; i<size; i++) buf[i]=0;
+                    continue;
+                } else {
+                    blacklist[ipaddr] = time.currentTime();
+                }
             }
         }
         clientSocket[i]->write(buf,size);
@@ -130,7 +141,7 @@ void Widget::clientdisconnected()
         for(unsigned int i=0; i<16777215; i++) buf[i]=0;
         if(clientSocket[i]->state() == QAbstractSocket::UnconnectedState)
         {
-            ui->loging->appendPlainText("client:" + QString::number(int(clientSocket[i]) & 0x0000FFFF,16) + " disconnected.");
+            //logline("client:" + QString::number(int(clientSocket[i]) & 0x0000FFFF,16) + " disconnected.");
             SQLsocket[clientSocket[i]]->close();
             delete SQLsocket[clientSocket[i]];
             SQLsocket.remove(clientSocket[i]);
@@ -139,6 +150,31 @@ void Widget::clientdisconnected()
     }
 }
 
+
+int Widget::log(QString log_string)
+{
+    log_string = time.currentTime().toString()+ " " + log_string;
+    if(ui->cb_log->isChecked())
+    {
+        QFile file(QCoreApplication::applicationDirPath()+"/logs/" + date.currentDate().toString("yyyy-MM-dd") + ".log");
+        if(file.open(QIODevice::Append | QIODevice::Text))
+        {
+            file.write(log_string.toUtf8());
+            file.close();
+        }
+    }
+
+    ui->loging->insertPlainText(log_string);
+    log_normal += log_string;
+    return log_string.length();
+}
+
+int Widget::logline(QString line)
+{
+    line +='\n';
+    log(line);
+    return line.length();
+}
 
 
 //const definition

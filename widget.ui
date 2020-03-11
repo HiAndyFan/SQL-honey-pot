@@ -116,9 +116,6 @@
        <property name="text">
         <string>重置保留黑名单</string>
        </property>
-       <property name="checked">
-        <bool>true</bool>
-       </property>
       </widget>
      </item>
      <item>
@@ -178,7 +175,7 @@
        <item row="0" column="1">
         <layout class="QHBoxLayout" name="ttl">
          <item>
-          <widget class="QSpinBox" name="sb_second">
+          <widget class="QSpinBox" name="sb_ttl">
            <property name="sizePolicy">
             <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
              <horstretch>0</horstretch>
