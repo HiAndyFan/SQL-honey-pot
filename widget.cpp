@@ -50,9 +50,13 @@ void Widget::on_pb_stop_clicked()
             SQLsocket[clientSocket[i]]->close();
             clientSocket[i]->close();
         }
-        failcount.clear();
         ui->cb_state->setChecked(false);
         log("监听终止");
+    }
+    if(!ui->cb_holdlist->isChecked())
+    {
+        failcount.clear();
+        blacklist.clear();
     }
 }
 
@@ -75,20 +79,20 @@ void Widget::acceptConnection()
     //log("A new connection:" + QString::number(int(Currentsocket) & 0x0000FFFF,16));
 }
 
-void Widget::readClient()
+void Widget::readClient()// 逻辑应该梳理清晰
 {
     char certsucces[11] = {7,0,0,1,0,0,0,2,0,0,0};
     for(int i=0; i<clientSocket.length(); i++)
     {
         qint64 size = clientSocket[i]->read(buf,16777215);
         if(size == 0)   continue;
-        if(buf[4] >= 0x00 && buf[4] <= 0x1C)
+        if(buf[4] >= 0x00 && buf[4] <= 0x1C && buf[3] != 0x01)
         {
-            log("[" + clientSocket[i]->peerAddress().toString()\
-                  + "] [" +command[buf[4]] + "] " + &buf[5]);
+            //被拒收的信息不应显示, 蜜罐内数据单独显示
+            log("[" + clientSocket[i]->peerAddress().toString()+ "] [" +command[buf[4]] + "] " + &buf[5]);
         }
         QString ipaddr = clientSocket[i]->peerAddress().toString();
-        if(failcount[ipaddr]<ui->sb_attempt->value() && ui->cb_resent->isChecked())
+        if(failcount[ipaddr]<ui->sb_attempt->value() && ui->cb_relay->isChecked())
         {
             SQLsocket[clientSocket[i]]->write(buf,size);
             for(unsigned int i=0; i<size; i++) buf[i]=0;
@@ -106,8 +110,12 @@ void Widget::readClient()
             } else {
                 blacklist[ipaddr] = time.currentTime();
             }
-            certsucces[3] =buf[3]+1;
-            clientSocket[i]->write(certsucces,sizeof(certsucces));
+            if(!ui->rb_reject->isChecked())
+            {
+                certsucces[3] =buf[3]+1;
+                clientSocket[i]->write(certsucces,sizeof(certsucces));
+            }
+            for(unsigned int i=0; i<size; i++) buf[i]=0;
         }
     }
 }
@@ -158,7 +166,6 @@ int Widget::log(QString log_string)
             file.close();
         }
     }
-
     ui->loging->appendPlainText(log_string);
     log_normal += log_string;
     return log_string.length();

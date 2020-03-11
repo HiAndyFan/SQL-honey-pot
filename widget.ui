@@ -112,7 +112,7 @@
       </widget>
      </item>
      <item>
-      <widget class="QCheckBox" name="cb_savedata">
+      <widget class="QCheckBox" name="cb_holdlist">
        <property name="text">
         <string>重置保留黑名单</string>
        </property>
