@@ -296,11 +296,11 @@
 }
 /*未选中*/
 QCheckBox::indicator::unchecked {   
-	image: url(:/image/off.png);
+	image: url(:/image/image/off.png);
 }
 /*选中*/
 QCheckBox::indicator::checked { 
-	image: url(:/image/on.png);
+	image: url(:/image/image/on.png);
 }</string>
          </property>
          <property name="text">

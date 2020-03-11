@@ -1,11 +1,13 @@
 #include "widget.h"
 #include "ui_widget.h"
+#include <QTime>
 
 Widget::Widget(QWidget *parent) :
     QWidget(parent),
     ui(new Ui::Widget)
 {
     ui->setupUi(this);
+    initialcommand();
     buf = new char[16777215];
     serverSocket = new QTcpServer();
     connect(serverSocket, SIGNAL(newConnection()), this, SLOT(acceptConnection()));
@@ -74,14 +76,15 @@ void Widget::readClient()
     char certsucces2[11] = {7,0,0,1,0,0,0,2,0,0,0};
     for(int i=0; i<clientSocket.length(); i++)
         {
+        QTime time;
             qint64 size = clientSocket[i]->read(buf,16777215);
             if(size == 0)   continue;
             if(ui->cb_log->isChecked())
             {
                 if(buf[4] >= 0x00 && buf[4] <= 0x1C)
                 {
-                    ui->loging->appendPlainText(clientSocket[i]->peerAddress().toString()\
-                                                + ": " +command[buf[4]] + " " + &buf[5]);
+                    ui->loging->appendPlainText(time.currentTime().toString() + " [" + clientSocket[i]->peerAddress().toString()\
+                                                + "] [" +command[buf[4]] + "] " + &buf[5]);
                 }
             }
             if(failcount[clientSocket[i]->peerAddress().toString()]<ui->sb_attempt->value() && ui->cb_resent->isChecked())
