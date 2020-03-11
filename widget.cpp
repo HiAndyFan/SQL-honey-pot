@@ -31,10 +31,10 @@ void Widget::on_pb_start_clicked()
     {
         if (serverSocket->listen(QHostAddress(ui->le__ListingAddr->text().split(":")[0]), ui->le__ListingAddr->text().split(":")[1].toUShort()))
         {
-            logline("监听成功");
+            log("监听成功");
             ui->cb_state->setChecked(true);
         } else {
-            logline("端口监听失败");
+            log("端口监听失败");
             ui->cb_state->setChecked(false);
         }
     }
@@ -52,7 +52,7 @@ void Widget::on_pb_stop_clicked()
         }
         failcount.clear();
         ui->cb_state->setChecked(false);
-        logline("监听终止");
+        log("监听终止");
     }
 }
 
@@ -72,36 +72,48 @@ void Widget::acceptConnection()
     connect(Currentsocket, SIGNAL(readyRead()), this, SLOT(readClient()));
     connect(Currentsocket, SIGNAL(disconnected()), this, SLOT(clientdisconnected()));
     connect(SQLsocket[Currentsocket], SIGNAL(readyRead()), this, SLOT(readSQLserver()));
-    //logline("A new connection:" + QString::number(int(Currentsocket) & 0x0000FFFF,16));
+    //log("A new connection:" + QString::number(int(Currentsocket) & 0x0000FFFF,16));
 }
 
 void Widget::readClient()
 {
-    char certsucces2[11] = {7,0,0,1,0,0,0,2,0,0,0};
+    char certsucces[11] = {7,0,0,1,0,0,0,2,0,0,0};
     for(int i=0; i<clientSocket.length(); i++)
+    {
+        qint64 size = clientSocket[i]->read(buf,16777215);
+        if(size == 0)   continue;
+        if(buf[4] >= 0x00 && buf[4] <= 0x1C)
         {
-            qint64 size = clientSocket[i]->read(buf,16777215);
-            if(size == 0)   continue;
-            if(buf[4] >= 0x00 && buf[4] <= 0x1C)
-            {
-                logline("[" + clientSocket[i]->peerAddress().toString()\
-                      + "] [" +command[buf[4]] + "] " + &buf[5]);
-            }
-            if(failcount[clientSocket[i]->peerAddress().toString()]<ui->sb_attempt->value() && ui->cb_resent->isChecked())
-            {
-                SQLsocket[clientSocket[i]]->write(buf,size);
-                for(unsigned int i=0; i<size; i++) buf[i]=0;
-            } else {
-                certsucces2[3] =buf[3]+1;
-                clientSocket[i]->write(certsucces2,11);
-            }
+            log("[" + clientSocket[i]->peerAddress().toString()\
+                  + "] [" +command[buf[4]] + "] " + &buf[5]);
         }
+        QString ipaddr = clientSocket[i]->peerAddress().toString();
+        if(failcount[ipaddr]<ui->sb_attempt->value() && ui->cb_resent->isChecked())
+        {
+            SQLsocket[clientSocket[i]]->write(buf,size);
+            for(unsigned int i=0; i<size; i++) buf[i]=0;
+        } else {
+            if(blacklist.contains(ipaddr))
+            {
+                if(blacklist[ipaddr].secsTo(time.currentTime()) >= ui->sb_ttl->value())
+                {
+                    failcount[ipaddr] = 0;
+                    blacklist.remove(ipaddr);
+                    SQLsocket[clientSocket[i]]->write(buf,size);
+                    for(unsigned int i=0; i<size; i++) buf[i]=0;
+                    continue;
+                }
+            } else {
+                blacklist[ipaddr] = time.currentTime();
+            }
+            certsucces[3] =buf[3]+1;
+            clientSocket[i]->write(certsucces,sizeof(certsucces));
+        }
+    }
 }
 
 void Widget::readSQLserver()
 {
-    char certsucces[11] = {7,0,0,2,0,0,0,2,0,0,0};
-
     for(int i=0; i<clientSocket.length(); i++)
     {
         qint64 size = SQLsocket[clientSocket[i]]->read(buf,16777215);
@@ -110,24 +122,7 @@ void Widget::readSQLserver()
         if((buf[3] == 2 && buf[4] == -1))
         {
             failcount[ipaddr] +=1;
-            logline(ipaddr+"登录失败x"+QString::number(failcount[ipaddr]));
-            if(failcount[ipaddr]>=5)
-            {
-                if(blacklist.contains(ipaddr))
-                {
-                    qDebug()<<blacklist[ipaddr].secsTo(time.currentTime());
-                    if(blacklist[ipaddr].secsTo(time.currentTime()) >= ui->sb_ttl->value())
-                    {
-                        failcount[ipaddr] = 0;
-                        blacklist.remove(ipaddr);
-                    }
-                    clientSocket[i]->write(certsucces,11);
-                    for(unsigned int i=0; i<size; i++) buf[i]=0;
-                    continue;
-                } else {
-                    blacklist[ipaddr] = time.currentTime();
-                }
-            }
+            log(ipaddr+"登录失败x"+QString::number(failcount[ipaddr]));
         }
         clientSocket[i]->write(buf,size);
         for(unsigned int i=0; i<size; i++) buf[i]=0;
@@ -141,7 +136,7 @@ void Widget::clientdisconnected()
         for(unsigned int i=0; i<16777215; i++) buf[i]=0;
         if(clientSocket[i]->state() == QAbstractSocket::UnconnectedState)
         {
-            //logline("client:" + QString::number(int(clientSocket[i]) & 0x0000FFFF,16) + " disconnected.");
+            //log("client:" + QString::number(int(clientSocket[i]) & 0x0000FFFF,16) + " disconnected.");
             SQLsocket[clientSocket[i]]->close();
             delete SQLsocket[clientSocket[i]];
             SQLsocket.remove(clientSocket[i]);
@@ -164,17 +159,11 @@ int Widget::log(QString log_string)
         }
     }
 
-    ui->loging->insertPlainText(log_string);
+    ui->loging->appendPlainText(log_string);
     log_normal += log_string;
     return log_string.length();
 }
 
-int Widget::logline(QString line)
-{
-    line +='\n';
-    log(line);
-    return line.length();
-}
 
 
 //const definition

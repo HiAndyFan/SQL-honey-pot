@@ -38,7 +38,6 @@ private:
 
     int initialcommand();
     int log(QString string);
-    int logline(QString line);
 
 private slots:
     void on_pb_start_clicked();
