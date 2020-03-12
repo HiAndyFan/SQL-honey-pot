@@ -37,7 +37,9 @@ private:
     QHash<QString, QTime> blacklist;
 
     int initialcommand();
-    int log(QString string);
+    int log(QString log_string);
+    int logpot(QString log_string);
+    QString direction(QString ipaddr);
 
 private slots:
     void on_pb_start_clicked();

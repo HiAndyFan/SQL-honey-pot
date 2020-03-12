@@ -17,6 +17,7 @@ Widget::Widget(QWidget *parent) :
     connect(serverSocket, SIGNAL(newConnection()), this, SLOT(acceptConnection()));
     ui->cb_state->setEnabled(false);
     ui->loging->setContextMenuPolicy(Qt::NoContextMenu);
+    //ui->loging->appendHtml("<head><style>.honeypot{color:red;}</style></head>");
     on_pb_start_clicked();
 }
 
@@ -79,44 +80,52 @@ void Widget::acceptConnection()
     //log("A new connection:" + QString::number(int(Currentsocket) & 0x0000FFFF,16));
 }
 
-void Widget::readClient()// 逻辑应该梳理清晰
+void Widget::readClient()
 {
     char certsucces[11] = {7,0,0,1,0,0,0,2,0,0,0};
     for(int i=0; i<clientSocket.length(); i++)
     {
+        QString ipaddr = clientSocket[i]->peerAddress().toString();
+        if(blacklist.contains(ipaddr))
+        {
+            if(blacklist[ipaddr].secsTo(time.currentTime()) >= ui->sb_ttl->value())
+            {
+                //处理过期黑名单
+                failcount[ipaddr] = 0;
+                blacklist.remove(ipaddr);
+            }
+        }
+
+        if("Reject" == direction(ipaddr))
+        {
+            //黑名单最大尝试次数后拒绝连接
+            clientSocket[i]->close();
+            clientSocket.removeAll(clientSocket[i]);
+            continue;
+        }
         qint64 size = clientSocket[i]->read(buf,16777215);
         if(size == 0)   continue;
-        if(buf[4] >= 0x00 && buf[4] <= 0x1C && buf[3] != 0x01)
+
+        if("Relay" == direction(ipaddr))
         {
-            //被拒收的信息不应显示, 蜜罐内数据单独显示
-            log("[" + clientSocket[i]->peerAddress().toString()+ "] [" +command[buf[4]] + "] " + &buf[5]);
-        }
-        QString ipaddr = clientSocket[i]->peerAddress().toString();
-        if(failcount[ipaddr]<ui->sb_attempt->value() && ui->cb_relay->isChecked())
-        {
+            //转发消息
             SQLsocket[clientSocket[i]]->write(buf,size);
-            for(unsigned int i=0; i<size; i++) buf[i]=0;
-        } else {
-            if(blacklist.contains(ipaddr))
+            if(buf[4] >= 0x00 && buf[4] <= 0x1C && buf[3] != 0x01)
             {
-                if(blacklist[ipaddr].secsTo(time.currentTime()) >= ui->sb_ttl->value())
-                {
-                    failcount[ipaddr] = 0;
-                    blacklist.remove(ipaddr);
-                    SQLsocket[clientSocket[i]]->write(buf,size);
-                    for(unsigned int i=0; i<size; i++) buf[i]=0;
-                    continue;
-                }
-            } else {
-                blacklist[ipaddr] = time.currentTime();
+                log("[" + clientSocket[i]->peerAddress().toString()+ "] [" +command[buf[4]] + "] " + &buf[5]);
             }
-            if(!ui->rb_reject->isChecked())
-            {
-                certsucces[3] =buf[3]+1;
-                clientSocket[i]->write(certsucces,sizeof(certsucces));
-            }
-            for(unsigned int i=0; i<size; i++) buf[i]=0;
         }
+        if("HoneyPot" == direction(ipaddr))
+        {
+            //进入蜜罐
+            certsucces[3] =buf[3]+1;
+            clientSocket[i]->write(certsucces,sizeof(certsucces));
+            if(buf[4] >= 0x00 && buf[4] <= 0x1C && buf[3] != 0x01)//写入独立log
+            {
+                logpot("[" + clientSocket[i]->peerAddress().toString()+ "] [" +command[buf[4]] + "] " + &buf[5]);
+            }
+        }
+        for(unsigned int i=0; i<size; i++) buf[i]=0;
     }
 }
 
@@ -130,6 +139,10 @@ void Widget::readSQLserver()
         if((buf[3] == 2 && buf[4] == -1))
         {
             failcount[ipaddr] +=1;
+            if(failcount[ipaddr] >= ui->sb_attempt->value())
+            {
+                blacklist[ipaddr] = time.currentTime();
+            }
             log(ipaddr+"登录失败x"+QString::number(failcount[ipaddr]));
         }
         clientSocket[i]->write(buf,size);
@@ -154,9 +167,14 @@ void Widget::clientdisconnected()
 }
 
 
-int Widget::log(QString log_string)
+int Widget::log(QString log_string)//运行日志
 {
     log_string = time.currentTime().toString()+ " " + log_string;
+    if(!ui->cb_logpot->isChecked())
+    {
+        ui->loging->appendHtml("<font color=\"#00FF00\">" + log_string + "</font> ");
+    }
+    log_string+= "\n";
     if(ui->cb_log->isChecked())
     {
         QFile file(QCoreApplication::applicationDirPath()+"/logs/" + date.currentDate().toString("yyyy-MM-dd") + ".log");
@@ -166,12 +184,54 @@ int Widget::log(QString log_string)
             file.close();
         }
     }
-    ui->loging->appendPlainText(log_string);
     log_normal += log_string;
     return log_string.length();
 }
 
+int Widget::logpot(QString log_string)//蜜罐内日志
+{
+    log_string = time.currentTime().toString()+ " " + log_string;
+    ui->loging->appendHtml("<font color=\"#"+ui->le_color->text()+"\">" + log_string + "</font> ");
+    log_string+= "\n";
+    if(ui->cb_log->isChecked())
+    {
+        QFile file(QCoreApplication::applicationDirPath()+"/logs/" + date.currentDate().toString("yyyy-MM-dd") + "_honeypot.log");
+        if(file.open(QIODevice::Append | QIODevice::Text))
+        {
+             file.write(log_string.toUtf8());
+             file.close();
+        }
+    }
+     log_pot += log_string;
+     return log_string.length();
 
+}
+
+QString Widget::direction(QString ipaddr)
+{
+    if(blacklist.contains(ipaddr))
+    {
+        //黑名单内
+        if(ui->rb_reject->isChecked())
+        {
+            //最大尝试次数后拒绝服务
+            return "Reject";
+        } else {
+            //最大尝试次数后进入蜜罐
+            return "HoneyPot";
+        }
+    } else {
+        //黑名单外
+        if(ui->cb_relay->isChecked())
+        {
+            //启用转发
+            return "Relay";
+        } else {
+            //禁用转发, 进入蜜罐
+            return "HoneyPot";
+        }
+    }
+}
 
 //const definition
 int Widget::initialcommand()
